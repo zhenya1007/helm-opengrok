@@ -3,96 +3,98 @@
 (require 'helm)
 (require 'helm-grep)
 
+(defun helm-opengrok-guess-java-command ()
+  (assoc-default system-type helm-opengrok-java-file-name-alist #'eq "java"))
+
+(defun helm-opengrok-locate-opengrok-jar ()
+  (helm-aif
+      (cl-loop for dir in helm-opengrok-jar-directories-list
+	       for files = (file-expand-wildcards (expand-file-name "opengrok*.jar" dir))
+	       if files
+	       if (or (null (cdr files))
+			 (cl-loop for f in files
+				  for p = nil then f
+				  always (or (null p)
+					     (string= (file-truename f)
+						      (file-truename p)))))
+	       return (car files))
+      it
+    (signal 'file-missing "Cannot locate OpenGrok JAR.")))
+
 (defgroup helm-opengrok nil
   "Settings for helm-opengrok.")
 
-(defcustom helm-opengrok-java-file-name (helm-opengrok-guess-java-command)
-  "The path to the Java(TM) executable to be used with OpenGrok."
-  :group helm-opengrok
-  :type string)
-
 (defcustom helm-opengrok-java-file-name-alist
     '((gnu/linux .  "/usr/bin/java")
-     (bsd-unix  . "/usr/local/bin/java")
+     (berkeley-unix  . "/usr/local/bin/java")
      (windows-nt . "java.exe"))
-  :group helm-opengrok
-  :type (alist :key-type symbol :value-type string))
+    "An alist of where to find Java executable on various systems."
+  :group 'helm-opengrok
+  :type '(alist :key-type symbol :value-type string))
+
+(defcustom helm-opengrok-java-file-name (helm-opengrok-guess-java-command)
+  "The path to the Java(TM) executable to be used with OpenGrok."
+  :group 'helm-opengrok
+  :type 'string)
 
 (defcustom helm-opengrok-java-args '()
   "The list of command-line arguments to pass to Java(TM) when running OpenGrok JAR."
-  :group helm-opengrok
-  :type (repeat string))
-
-(defcustom helm-opengrok-opengrok-jar-file-name
-  (file-name-nondirectory (helm-opengrok-locate-opengrok-jar))
-  "The file name of the OpenGrok JAR."
-  :group helm-opengrok
-  :type string)
-
-(defcustom helm-opengrok-jar-directory
-  (file-name-as-directory (file-name-directory (helm-opengrok-locate-opengrok-jar)))
-  "The directory in which `helm-opengrok-opengrok-jar-file-name' is located."
-  :group helm-opengrok
-  :type string)
+  :group 'helm-opengrok
+  :type '(repeat string))
 
 (defcustom helm-opengrok-jar-directories-list
   `("/usr/share/java" ; Debian Java Policy Manual
    "/usr/local/share/java" ; sounds like a good idea
    ,(expand-file-name "src/OpenGrok/dist" "~")
    ,(expand-file-name "src/OpenGrok/dist" "/usr/local/src"))
-  :group helm-opengrok
-  :type (repeat string)
-  "A list of directories to probe for the presence of \"opengrok*.jar\".")
+  "A list of directories to probe for the OpenGrok JAR."
+  :group 'helm-opengrok
+  :type '(repeat string))
+
+(defcustom helm-opengrok-opengrok-jar-file-name
+  (file-name-nondirectory (helm-opengrok-locate-opengrok-jar))
+  "The file name of the OpenGrok JAR."
+  :group 'helm-opengrok
+  :type 'string)
+
+(defcustom helm-opengrok-jar-directory
+  (file-name-as-directory (file-name-directory (helm-opengrok-locate-opengrok-jar)))
+  "The directory in which `helm-opengrok-opengrok-jar-file-name' is located."
+  :group 'helm-opengrok
+  :type 'string)
+
 
 (defcustom helm-opengrok-configuration-file-name "configuration.xml"
   "The OpenGrok configuration file.
-This is the argument to the \"-R\" command-line option.")
+This is the argument to the \"-R\" command-line option."
+  :group 'helm
+  :type string)
 
-(defcustom helm-opengrok-data-directory "user/opengrok"
+(defcustom helm-opengrok-data-directory (file-name-as-directory "user/opengrok")
   "A path, relative to the root of the source tree, to the OpenGrok data directory."
-  :group helm-opengrok
-  :type string
-  :set (lambda (name value)
-	 (set-default name (file-name-as-directory value)))
-  :initialize (lambda (name value)
-		(custom-initialize-set name
-				       (file-name-as-directory value))))
+  :group 'helm-opengrok
+  :type 'string)
 
 (defcustom helm-opengrok-configuration-directory
-  (expand-file-name "etc" helm-opengrok-data-directory)
+  (file-name-as-directory
+   (file-relative-name (expand-file-name "etc" helm-opengrok-data-directory)
+		       default-directory))
   "A path, relative to the root of the source tree, to the OpenGrok configuration file (`helm-opengrok-configuration-file-name')."
-  :group helm-opengrok
-  :type string
-  :set (lambda (name value)
-	 (set-default name (file-name-as-directory value)))
-  :initialize (lambda (name value)
-		(custom-initialize-set name
-				       (file-name-as-directory value))))
+  :group 'helm-opengrok
+  :type 'string)
 
 (defcustom helm-opengrok-search-class-name "org.opensolaris.opengrok.search.Search"
-  "The name of the class to use for command-line-searches.")
+  "The name of the class to use for command-line-searches."
+  :group 'helm-opengrok
+  :type 'string)
 
 (defvar helm-opengrok-history nil
   "History of the OpenGrok searches.")
 
-(defun helm-opengrok-guess-java-command ()
-  (assoc-default system-type #'eq "java"))
-
-(defun helm-opengrok-locate-opengrok-jar ()
-   (or (cl-loop for dir in helm-opengrok-jar-directories-list
-		for files = (file-expand-wildcards (expand-file-name "opengrok*.jar" dir))
-		if (or (and (car files) (null (cdr files)))
-		       (cl-loop for f in files
-				for p = nil then f
-				(always (or (null p)
-					    (string= (file-truename f)
-						     (file-truename p))))))
-		return (car files))
-       (signal 'file-missing "Cannot locate OpenGrok JAR.")))
-
 ;;; Running OpenGrok
 (defcustom helm-opengrok-class-variables-list nil
-  "Used internally by helm-opengrok.el")
+  "Used internally by helm-opengrok.el"
+  :group 'helm-opengrok)
 
 ;; restore the custom values (presumably set in previous Emacs sessions)
 (when helm-opengrok-class-variables-list
@@ -103,8 +105,8 @@ This is the argument to the \"-R\" command-line option.")
 
 (defun helm-opengrok-base-command ()
   "The basic incantation to invoke OpenGrok."
-  (helm-opengrok-java-file-name
-	      helm-opengrok-java-file-name
+  `(,helm-opengrok-java-file-name
+	      ,helm-opengrok-java-file-name
 	      ,@helm-opengrok-java-args
 	      "-jar"
 	      ,(expand-file-name helm-opengrok-opengrok-jar-file-name
@@ -114,6 +116,12 @@ This is the argument to the \"-R\" command-line option.")
   "Auxiliary function for `helm-opengrok-run-query'."
   (or config-dir
       (file-name-as-directory (expand-file-name helm-opengrok-configuration-directory
+						src-dir))))
+
+(defun helm-opengrok-get-data-directory (src-dir &optional data-directory)
+  "Auxiliary function for `helm-opengrok-run-query'."
+  (or config-dir
+      (file-name-as-directory (expand-file-name helm-opengrok-data-directory
 						src-dir))))
 
 (defun helm-opengrok-record-data-directory (src-dir data-dir)
@@ -145,10 +153,11 @@ The \"directory-local-variable\" in which the value is saved is local to SRC-DIR
   "Create opengrok index."
   (interactive
    (let* ((src-root (read-directory-name "Directory to index: " default-directory nil t))
-	  (data-root (read-directory-name (format "Directory which stores OpenGrok data for source tree in %s: " src-root)
-					  (and helm-opengrok-configuration-directory
-					       (expand-file-name helm-opengrok-configuration-directory src-root))))
-	  (list src-root data-root))))
+	  (data-root (read-directory-name
+		      (format "Directory which stores OpenGrok data for source tree in %s: " src-root)
+		      (and helm-opengrok-configuration-directory
+			   (expand-file-name helm-opengrok-data-directory src-root)))))
+     (list src-root data-root)))
   (helm-opengrok-record-data-directory src-root data-root)
   (make-process
    :name "opengrok-index"
