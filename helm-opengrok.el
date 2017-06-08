@@ -350,8 +350,23 @@ The \"directory-local-variable\" in which the value is saved is local to SRC-DIR
 ;;; Helm sources definitions
 
 ;; FIXME: parse the output of OpenGrok here instead
+;; $ java -cp ./opengrok.jar org.opensolaris.opengrok.search.Search
+;; You must specify a configuration file
+;; USAGE: Search -R <configuration.xml> [-d | -r | -p | -h | -f | -t] 'query string' ..
+;; 	 -R <configuration.xml> Read configuration from the specified file
+;; 	 -d Symbol Definitions
+;; 	 -r Symbol References
+;; 	 -p Path
+;; 	 -h History
+;; 	 -f Full text
+;; 	 -t Type
 (defun helm-opengrok-get-types ()
-  (list "-f" "-r" "-d"))
+  `(("Symbol Definitions" . "-d")
+    ("Symbol References" . "-r")
+    ("Type" . "-t")
+    ("Path" . "-p")
+    ("History" . "-h")
+    ("Full text" . "-f")))
 
 (defun helm-opengrok-base-command ()
   "The basic incantation to invoke OpenGrok search."
@@ -659,7 +674,7 @@ With a prefix arg record CANDIDATE in `mark-ring'."
 	  :keymap helm-grep-map
 	  :history 'helm-opengrok-history
 	  :truncate-lines helm-grep-truncate-lines
-	  :default str
+	  :input str
 	  :buffer (format "*helm-OpenGrok %s %s*" type directory))))
 
 ;; without an argument, if invoked from a file-visiting buffer, assume that the directory
