@@ -19,6 +19,7 @@
 (require 'helm)
 (require 'helm-grep)
 (require 'sgml-mode)
+(require 'xml)
 
 (defun helm-opengrok-find-glob-in-dirs (glob dirs)
   (helm-aif
@@ -82,23 +83,6 @@
 (defcustom helm-opengrok-opengrok-jar-file-name
   "opengrok*.jar"
   "The file name of the OpenGrok JAR."
-  :group 'helm-opengrok
-  :type 'string)
-
-(defcustom helm-opengrok-script-directory-list
-  (helm-opengrok-per-platform
-   ((gnu/linux berkeley-unix)
-    ("/usr/local/bin"
-     ,(expand-file-name "src/OpenGrok" "~")
-     ,(expand-file-name "src/OpenGrok" "/usr/local"))))
-  "A list of directories to probe for the OpenGrok wrapper script."
-  :group 'helm-opengrok
-  :type '(repeat string))
-
-(defcustom helm-opengrok-script-file-name
-  (helm-opengrok-per-platform
-   ((gnu/linux berkeley-unix) "OpenGrok"))
-  "The name of the OpenGrok wrapper script."
   :group 'helm-opengrok
   :type 'string)
 
@@ -347,8 +331,7 @@ The \"directory-local-variable\" in which the value is saved is local to SRC-DIR
 (defun helm-opengrok-retrieve-instance-base (src-root)
   (let ((variables-file (dir-locals-find-file
                          (expand-file-name "dummy" (file-truename src-root))))
-	(class nil)
-	(dir-name nil))
+	class dir-name)
     (cond
      ((stringp variables-file)
       (setq dir-name (file-name-directory variables-file)
@@ -359,9 +342,10 @@ The \"directory-local-variable\" in which the value is saved is local to SRC-DIR
     (when class
       (or (helm-aif (assoc 'helm-opengrok
 			   (dir-locals-get-class-variables class))
-	      (assoc-default 'helm-opengrok-instance-base (cdr it)))
-	  (expand-file-name helm-opengrok-instance-base
-			    (file-truename src-root))))))
+	      (helm-aif (assoc-default 'helm-opengrok-instance-base (cdr it))
+		  (expand-file-name it dir-name)))
+	  (helm-opengrok-retrieve-instance-base (file-name-as-directory
+						 (file-name-directory dir-name)))))))
 
 ;;; Helm sources definitions
 
@@ -381,8 +365,7 @@ The \"directory-local-variable\" in which the value is saved is local to SRC-DIR
 (defun helm-opengrok-prepare-cmd-line (pattern directory type)
   "Prepare OpenGrok command line to search PATTERN in DIRECTORY.
 When TYPE is specified it is one of the types returned by `helm-opengrok-get-types'."
-  (let* ((instance-base (expand-file-name (helm-opengrok-retrieve-instance-base directory)
-					  directory))
+  (let* ((instance-base (helm-opengrok-retrieve-instance-base directory))
 	 (config-dir (expand-file-name helm-opengrok-configuration-directory
 				       instance-base))
 	 (lst `(,@(helm-opengrok-base-command)
@@ -493,7 +476,8 @@ When TYPE is specified it is one of the types returned by `helm-opengrok-get-typ
 				    (backward-list)
 				  (error nil)))
 			      (when (= 1 (skip-chars-forward "["))
-				(find-line-num (buffer-substring (point) pt)))))
+				(find-line-num (xml-substitute-special
+						(buffer-substring (point) pt))))))
 	      (find-line-num (txt)
 			     (when (and (= -1 (skip-chars-backward "["))
 					(> 0 (skip-chars-backward "[:space:][:digit:]"))
@@ -649,8 +633,17 @@ With a prefix arg record CANDIDATE in `mark-ring'."
 (defvar helm-opengrok-history nil)
 
 (defun helm-opengrok-query-1 (directory)
-  "Start helm ag in DIRECTORY maybe searching in files of type TYPE."
-  (let ((type (helm-comp-read
+  (let ((str (if (region-active-p)  ; copied from definition of helm-etags-select
+                 (buffer-substring-no-properties
+                  (region-beginning) (region-end))
+                 ;; Use a raw syntax-table to determine tap.
+                 ;; This may be wrong when calling etags
+                 ;; with hff from a buffer that use
+                 ;; a different syntax, but most of the time it
+                 ;; should be better.
+                 (with-syntax-table (standard-syntax-table)
+                   (thing-at-point 'symbol))))
+	(type (helm-comp-read
 	       "Query type: " (helm-opengrok-get-types)
 	       :must-match t
 	       :fc-transformer 'helm-adaptive-sort
@@ -666,11 +659,18 @@ With a prefix arg record CANDIDATE in `mark-ring'."
 	  :keymap helm-grep-map
 	  :history 'helm-opengrok-history
 	  :truncate-lines helm-grep-truncate-lines
+	  :default str
 	  :buffer (format "*helm-OpenGrok %s %s*" type directory))))
 
-(defun helm-opengrok-query ()
-  (interactive)
-  "Start OpenGrok in DIRECTORY.
-When WITH-TYPES is non-nil provide completion on AG types."
+;; without an argument, if invoked from a file-visiting buffer, assume that the directory
+;; that was indexed with OpenGrok is a parent of the buffers file name
+;; with a universal argument, prompt for a file name
+(defun helm-opengrok-query (&optional arg)
+  (interactive "P")
   (helm-opengrok-query-1
-   (helm-read-file-name "source directory: ")))
+   (if (null arg)
+       (if (and helm-buffer-file-name
+		(file-directory-p (file-name-directory helm-buffer-file-name)))
+	   (file-name-directory helm-buffer-file-name)
+	 (helm-read-file-name "source directory: "))
+     (helm-read-file-name "source directory: "))))
